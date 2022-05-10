@@ -10,8 +10,6 @@ import json
 import numpy as np
 import pandas as pd
 
-OUTPUT_DIR = "./csv"
-
 NUM_JOINTS = 32
 
 JOINT_LIST = [
@@ -50,6 +48,35 @@ JOINT_LIST = [
 ] = range(NUM_JOINTS)
 
 [RIGHT_DIM, FRONT_DIM, UP_DIM] = range(3)
+
+# angle unit [deg]
+TRUNK_SCORE_TH_1 = 20
+TRUNK_SCORE_TH_2 = 60
+TRUNK_TWIST_TH = 20
+TRUNK_SIDE_FLEX_TH = 20
+
+NECK_SCORE_TH = 20
+NECK_TWIST_TH = 20
+NECK_SIDE_FLEX_TH = 20
+
+LEGS_ANGLE_TH_1 = 30
+LEGS_ANGLE_TH_2 = 60
+LEGS_UNIRATERAL_TH = 20
+SITTING_THIGH_TH = 80
+
+UPPER_ARMS_SCORE_TH_1 = 20
+UPPER_ARMS_SCORE_TH_2 = 45
+UPPER_ARMS_SCORE_TH_3 = 90
+UPPER_ARMS_ABDUCT_TH = 20
+UPPER_ARMS_ROTATE_TH = 20
+SHOULDER_RAISE_TH = 5
+
+LOWER_ARMS_SCORE_TH_1 = 60
+LOWER_ARMS_SCORE_TH_2 = 100
+
+WRISTS_SCORE_TH = 15
+WRISTS_TWIST_
+
 
 
 def read_time_pos(input_json, target_body_id):
@@ -158,6 +185,10 @@ def calc_angle(arr_v1, arr_v2):
     arr_theta = np.arccos(arr_cos_theta)
 
     return arr_theta    # (T,)
+
+
+def calc_trunc_score(arr_pos_trans):
+    
 
 
 def reba(arr_positions, load_force, coupling):
