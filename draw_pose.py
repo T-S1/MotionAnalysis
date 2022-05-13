@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 from tqdm import tqdm
 
@@ -9,84 +8,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import cv2
 
-
-NUM_JOINTS = 32
-
-JOINT_LIST = [
-    PELVIS,
-    SPINE_NAVAL,
-    SPINE_CHEST,
-    NECK,
-    CLAVICLE_LEFT,
-    SHOULDER_LEFT,
-    ELBOW_LEFT,
-    WRIST_LEFT,
-    HAND_LEFT,
-    HANDTIP_LEFT,
-    THUMB_LEFT,
-    CLAVICLE_RIGHT,
-    SHOULDER_RIGHT,
-    ELBOW_RIGHT,
-    WRIST_RIGHT,
-    HAND_RIGHT,
-    HANDTIP_RIGHT,
-    THUMB_RIGHT,
-    HIP_LEFT,
-    KNEE_LEFT,
-    ANKLE_LEFT,
-    FOOT_LEFT,
-    HIP_RIGHT,
-    KNEE_RIGHT,
-    ANKLE_RIGHT,
-    FOOT_RIGHT,
-    HEAD,
-    NOSE,
-    EYE_LEFT,
-    EAR_LEFT,
-    EYE_RIGHT,
-    EAR_RIGHT,
-] = range(NUM_JOINTS)
-
-
-def read_time_ori_pos(input_json, target_body_id):
-
-    with open(input_json, "r") as f:
-        track_map = json.load(f)
-
-    timestamp_list = []
-    orientations_list = []
-    positions_list = []
-
-    frames = track_map["frames"]
-    for i in range(len(frames)):
-        frame = frames[i]
-        bodies = frame["bodies"]
-        timestamp_usec = frame["timestamp_usec"]
-        num_bodies = frame["num_bodies"]
-        for j in range(num_bodies):
-            body = bodies[j]
-            body_id = body["body_id"]
-
-            if body_id == target_body_id:
-
-                joint_orientations = body["joint_orientations"]
-                joint_positions = body["joint_positions"]
-
-                timestamp_list.append(timestamp_usec)
-                orientations_list.append(joint_orientations)
-                positions_list.append(joint_positions)
-
-    num_frames = len(timestamp_list)
-
-    arr_timestamp = np.zeros(num_frames)
-    arr_orientations = np.zeros((num_frames, NUM_JOINTS, 4))
-    arr_positions = np.zeros((num_frames, NUM_JOINTS, 3))
-
-    arr_timestamp[:] = np.array(timestamp_list)
-    arr_orientations[:, :, :] = np.array(orientations_list)
-    arr_positions[:, :, :] = np.array(positions_list)         # (T, J, 3)
-
-    return arr_timestamp, arr_orientations, arr_positions
+import src.reader as reader
 
 
 class MotionDrawer():
@@ -122,11 +44,11 @@ class MotionDrawer():
         print("processing")
 
         for t in tqdm(range(len(self.arr_pos))):
-            pel = self.arr_pos[t, PELVIS]
+            pel = self.arr_pos[t, reader.PELVIS]
             self.ax.set(xlim3d=(pel[0] - self.alpha, pel[0] + self.alpha))
             self.ax.set(ylim3d=(pel[2] - self.alpha, pel[2] + self.alpha))
             self.ax.set(zlim3d=(pel[1] - self.alpha, pel[1] + self.alpha))
-            for j in range(NUM_JOINTS):
+            for j in range(reader.NUM_JOINTS):
                 pos = self.arr_pos[t, j]
 
                 base_x, base_y, base_z = self.calc_pose(t, j)
@@ -187,14 +109,17 @@ def main():
     args = parser.parse_args()
 
     arr_timestamp, arr_orientations, arr_positions \
-        = read_time_ori_pos(args.input_json, args.body_id)
+        = reader.read_time_ori_pos(args.input_json, args.body_id)
 
     dif_time = arr_timestamp[1:] - arr_timestamp[:-1]
     mean_dif = np.mean(dif_time) / 1e6
     fps = 1 / mean_dif
     print(fps, "fps")
 
-    motion_drawer = MotionDrawer(arr_positions, arr_orientations, args.output_mp4, fps)
+    motion_drawer = MotionDrawer(
+        arr_positions, arr_orientations, args.output_mp4, fps
+    )
+
     motion_drawer.run()
 
 

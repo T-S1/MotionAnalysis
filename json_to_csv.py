@@ -2,13 +2,14 @@
 # [1] definition of orientation
 #     https://microsoft.github.io/Azure-Kinect-Body-Tracking/release/1.1.x/unionk4a__quaternion__t.html
 
-import pdb; pdb.set_trace()
+# import pdb; pdb.set_trace()
 import argparse
 import os
-import json
 
 import numpy as np
 import pandas as pd
+
+import src.reader as reader
 
 OUTPUT_DIR = "./csv"
 
@@ -53,35 +54,14 @@ def main():
     parser.add_argument("input_json",
                         help="input json file path",
                         type=str)
+    parser.add_argument("-id", "--body_id",
+                        help="target body id",
+                        type=int, default=1)
     args = parser.parse_args()
 
-    with open(args.input_json, "r") as f:
-        track_map = json.load(f)
-
-    timestamp_usec_list = []
-    joint_orientations_map = {}
-    joint_positions_map = {}
-
-    frames = track_map["frames"]
-    for i in range(len(frames)):
-        frame = frames[i]
-        bodies = frame["bodies"]
-        timestamp_usec = frame["timestamp_usec"]
-        num_bodies = frame["num_bodies"]
-        for j in range(num_bodies):
-            body = bodies[j]
-            body_id = body["body_id"]
-            joint_orientations = body["joint_orientations"]
-            joint_positions = body["joint_positions"]
-
-            if body_id not in joint_orientations_map:
-                joint_orientations_map[body_id] = []
-                joint_positions_map[body_id] = []
-
-            joint_orientations_map[body_id].append(joint_orientations)
-            joint_positions_map[body_id].append(joint_positions)
-
-        timestamp_usec_list.append(timestamp_usec)
+    arr_timestamp, arr_orientations, arr_positions = reader.read_time_ori_pos(
+        args.input_json, args.body_id
+    )
 
     orientation_columns = ["timestamp"] + [
         f"{joint_name}_{wxyz}"
@@ -98,32 +78,28 @@ def main():
     if not os.path.isdir(f"{OUTPUT_DIR}/{dir_name}"):
         os.makedirs(f"{OUTPUT_DIR}/{dir_name}")
 
-    for body_id in joint_orientations_map:
-        arr_orientations = np.array(joint_orientations_map[body_id])    # (T, J, 4)
-        arr_positions = np.array(joint_positions_map[body_id])          # (T, J, 3)
+    arr_orientations = np.reshape(arr_orientations, (-1, len(JOINT_LIST) * 4))  # (T, J * 4)
+    arr_positions = np.reshape(arr_positions, (-1, len(JOINT_LIST) * 3))        # (T, J * 3)
 
-        arr_orientations = np.reshape(arr_orientations, (-1, len(JOINT_LIST) * 4))  # (T, J * 4)
-        arr_positions = np.reshape(arr_positions, (-1, len(JOINT_LIST) * 3))        # (T, J * 3)
+    arr_timestamp = np.expand_dims(arr_timestamp, axis=1)     # (T, 1)
 
-        arr_timestamp = np.expand_dims(timestamp_usec_list, axis=1)     # (T, 1)
+    orientations_table = np.concatenate([arr_timestamp, arr_orientations], axis=1)
+    positions_table = np.concatenate([arr_timestamp, arr_positions], axis=1)
 
-        orientations_table = np.concatenate([arr_timestamp, arr_orientations], axis=1)
-        positions_table = np.concatenate([arr_timestamp, arr_positions], axis=1)
+    df_orientations = pd.DataFrame(orientations_table, columns=orientation_columns)
+    df_positions = pd.DataFrame(positions_table, columns=position_columns)
 
-        df_orientations = pd.DataFrame(orientations_table, columns=orientation_columns)
-        df_positions = pd.DataFrame(positions_table, columns=position_columns)
+    if not os.path.isdir(f"{OUTPUT_DIR}/{dir_name}/body_{args.body_id}"):
+        os.makedirs(f"{OUTPUT_DIR}/{dir_name}/body_{args.body_id}")
 
-        if not os.path.isdir(f"{OUTPUT_DIR}/{dir_name}/body_{body_id}"):
-            os.makedirs(f"{OUTPUT_DIR}/{dir_name}/body_{body_id}")
-
-        df_orientations.to_csv(
-            f"{OUTPUT_DIR}/{dir_name}/body_{body_id}/orientations.csv",
-            index=False
-        )
-        df_positions.to_csv(
-            f"{OUTPUT_DIR}/{dir_name}/body_{body_id}/positions.csv",
-            index=False
-        )
+    df_orientations.to_csv(
+        f"{OUTPUT_DIR}/{dir_name}/body_{args.body_id}/orientations.csv",
+        index=False
+    )
+    df_positions.to_csv(
+        f"{OUTPUT_DIR}/{dir_name}/body_{args.body_id}/positions.csv",
+        index=False
+    )
 
 
 if __name__ == "__main__":
