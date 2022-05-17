@@ -10,6 +10,8 @@ import json
 import numpy as np
 import pandas as pd
 
+import src.reader as reader
+
 NUM_JOINTS = 32
 
 JOINT_LIST = [
