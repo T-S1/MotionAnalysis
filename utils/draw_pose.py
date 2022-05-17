@@ -1,4 +1,5 @@
 import argparse
+import sys
 import os
 from tqdm import tqdm
 
@@ -7,6 +8,8 @@ import quaternion
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import cv2
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 import src.reader as reader
 
