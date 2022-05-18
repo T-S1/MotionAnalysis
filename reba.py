@@ -10,7 +10,7 @@ import json
 import numpy as np
 import pandas as pd
 
-import src.reader as reader
+import src.kinect as kinect
 
 NUM_JOINTS = 32
 
@@ -77,44 +77,6 @@ LOWER_ARMS_SCORE_TH_1 = 60
 LOWER_ARMS_SCORE_TH_2 = 100
 
 WRISTS_SCORE_TH = 15
-WRISTS_TWIST_
-
-
-
-def read_time_pos(input_json, target_body_id):
-
-    with open(input_json, "r") as f:
-        track_map = json.load(f)
-
-    timestamp_list = []
-    positions_list = []
-
-    frames = track_map["frames"]
-    for i in range(len(frames)):
-        frame = frames[i]
-        bodies = frame["bodies"]
-        timestamp_usec = frame["timestamp_usec"]
-        num_bodies = frame["num_bodies"]
-        for j in range(num_bodies):
-            body = bodies[j]
-            body_id = body["body_id"]
-
-            if body_id == target_body_id:
-
-                joint_positions = body["joint_positions"]
-
-                timestamp_list.append(timestamp_usec)
-                positions_list.append(joint_positions)
-
-    num_frames = len(timestamp_list)
-
-    arr_timestamp = np.zeros(num_frames)
-    arr_positions = np.zeros([num_frames, NUM_JOINTS, 3])
-
-    arr_timestamp[:] = np.array(timestamp_list)
-    arr_positions[:, :, :] = np.array(positions_list)         # (T, J, 3)
-
-    return arr_timestamp, arr_positions
 
 
 def estimate_vert(arr_positions):
