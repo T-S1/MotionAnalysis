@@ -11,7 +11,7 @@ import cv2
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-import src.reader as reader
+import kinect as kinect
 
 
 class MotionDrawer():
@@ -47,11 +47,11 @@ class MotionDrawer():
         print("processing")
 
         for t in tqdm(range(len(self.arr_pos))):
-            pel = self.arr_pos[t, reader.PELVIS]
+            pel = self.arr_pos[t, kinect.PELVIS]
             self.ax.set(xlim3d=(pel[0] - self.alpha, pel[0] + self.alpha))
             self.ax.set(ylim3d=(pel[2] - self.alpha, pel[2] + self.alpha))
             self.ax.set(zlim3d=(pel[1] - self.alpha, pel[1] + self.alpha))
-            for j in range(reader.NUM_JOINTS):
+            for j in range(kinect.NUM_JOINTS):
                 pos = self.arr_pos[t, j]
 
                 base_x, base_y, base_z = self.calc_pose(t, j)
@@ -112,7 +112,7 @@ def main():
     args = parser.parse_args()
 
     arr_timestamp, arr_orientations, arr_positions \
-        = reader.read_time_ori_pos(args.input_json, args.body_id)
+        = kinect.read_time_ori_pos(args.input_json, args.body_id)
 
     dif_time = arr_timestamp[1:] - arr_timestamp[:-1]
     mean_dif = np.mean(dif_time) / 1e6
