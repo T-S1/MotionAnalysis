@@ -9,7 +9,7 @@ import os
 import numpy as np
 import pandas as pd
 
-import src.reader as reader
+import src.kinect as kinect
 
 OUTPUT_DIR = "./csv"
 
@@ -59,7 +59,7 @@ def main():
                         type=int, default=1)
     args = parser.parse_args()
 
-    arr_timestamp, arr_orientations, arr_positions = reader.read_time_ori_pos(
+    arr_timestamp, arr_orientations, arr_positions = kinect.read_time_ori_pos(
         args.input_json, args.body_id
     )
 
