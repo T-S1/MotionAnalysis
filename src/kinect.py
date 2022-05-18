@@ -3,7 +3,7 @@ import numpy as np
 
 NUM_JOINTS = 32
 
-JOINT_LIST = [
+[
     PELVIS,
     SPINE_NAVAL,
     SPINE_CHEST,
@@ -37,6 +37,41 @@ JOINT_LIST = [
     EYE_RIGHT,
     EAR_RIGHT,
 ] = range(NUM_JOINTS)
+
+JOINT_NAME_LIST = [
+    "PELVIS",
+    "SPINE_NAVAL",
+    "SPINE_CHEST",
+    "NECK",
+    "CLAVICLE_LEFT",
+    "SHOULDER_LEFT",
+    "ELBOW_LEFT",
+    "WRIST_LEFT",
+    "HAND_LEFT",
+    "HANDTIP_LEFT",
+    "THUMB_LEFT",
+    "CLAVICLE_RIGHT",
+    "SHOULDER_RIGHT",
+    "ELBOW_RIGHT",
+    "WRIST_RIGHT",
+    "HAND_RIGHT",
+    "HANDTIP_RIGHT",
+    "THUMB_RIGHT",
+    "HIP_LEFT",
+    "KNEE_LEFT",
+    "ANKLE_LEFT",
+    "FOOT_LEFT",
+    "HIP_RIGHT",
+    "KNEE_RIGHT",
+    "ANKLE_RIGHT",
+    "FOOT_RIGHT",
+    "HEAD",
+    "NOSE",
+    "EYE_LEFT",
+    "EAR_LEFT",
+    "EYE_RIGHT",
+    "EAR_RIGHT",
+]
 
 
 def read_time_ori_pos(input_json, target_body_id):
@@ -78,3 +113,7 @@ def read_time_ori_pos(input_json, target_body_id):
     arr_positions[:, :, :] = np.array(positions_list)         # (T, J, 3)
 
     return arr_timestamp, arr_orientations, arr_positions
+
+
+def get_joint_name(joint_id):
+    return JOINT_NAME_LIST[joint_id]
