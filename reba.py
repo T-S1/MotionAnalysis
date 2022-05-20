@@ -12,43 +12,6 @@ import pandas as pd
 
 import src.kinect as kinect
 
-NUM_JOINTS = 32
-
-JOINT_LIST = [
-    PELVIS,
-    SPINE_NAVAL,
-    SPINE_CHEST,
-    NECK,
-    CLAVICLE_LEFT,
-    SHOULDER_LEFT,
-    ELBOW_LEFT,
-    WRIST_LEFT,
-    HAND_LEFT,
-    HANDTIP_LEFT,
-    THUMB_LEFT,
-    CLAVICLE_RIGHT,
-    SHOULDER_RIGHT,
-    ELBOW_RIGHT,
-    WRIST_RIGHT,
-    HAND_RIGHT,
-    HANDTIP_RIGHT,
-    THUMB_RIGHT,
-    HIP_LEFT,
-    KNEE_LEFT,
-    ANKLE_LEFT,
-    FOOT_LEFT,
-    HIP_RIGHT,
-    KNEE_RIGHT,
-    ANKLE_RIGHT,
-    FOOT_RIGHT,
-    HEAD,
-    NOSE,
-    EYE_LEFT,
-    EAR_LEFT,
-    EYE_RIGHT,
-    EAR_RIGHT,
-] = range(NUM_JOINTS)
-
 [RIGHT_DIM, FRONT_DIM, UP_DIM] = range(3)
 
 # angle unit [deg]
@@ -79,52 +42,49 @@ LOWER_ARMS_SCORE_TH_2 = 100
 WRISTS_SCORE_TH = 15
 
 
-def estimate_vert(arr_positions):
-    pel = arr_positions[:, PELVIS, :]
-    nav = arr_positions[:, SPINE_NAVAL, :]
-    hip_l = arr_positions[:, HIP_LEFT, :]
-    hip_r = arr_positions[:, HIP_RIGHT, :]
-    knee_l = arr_positions[:, KNEE_LEFT, :]
-    knee_r = arr_positions[:, KNEE_RIGHT, :]
+def estimate_vert(arr_pos):
+    pel = arr_pos[:, kinect.PELVIS, :]            # (T, 3)
+    nav = arr_pos[:, kinect.SPINE_NAVAL, :]
+    hip_l = arr_pos[:, kinect.HIP_LEFT, :]
+    hip_r = arr_pos[:, kinect.HIP_RIGHT, :]
+    knee_l = arr_pos[:, kinect.KNEE_LEFT, :]
+    knee_r = arr_pos[:, kinect.KNEE_RIGHT, :]
 
-    u_pel2nav = (nav - pel) / np.linalg.norm(nav - pel, ord=2, axis=1)
-    u_knee2hip_l = (hip_l - knee_l) / np.linalg.norm(hip_l - knee_l, ord=2, axis=1)
-    u_knee2hip_r = (hip_r - knee_r) / np.linalg.norm(hip_r - knee_r, ord=2, axis=1)
+    d_pel2nav = np.linalg.norm(nav - pel, ord=2, axis=1, keepdims=True)             # (T, 1)
+    d_knee2hip_l = np.linalg.norm(hip_l - knee_l, ord=2, axis=1, keepdims=True)
+    d_knee2hip_r = np.linalg.norm(hip_r - knee_r, ord=2, axis=1, keepdims=True)
+
+    u_pel2nav = (nav - pel) / d_pel2nav                 # (T, 3)
+    u_knee2hip_l = (hip_l - knee_l) / d_knee2hip_l
+    u_knee2hip_r = (hip_r - knee_r) / d_knee2hip_r
 
     i_vert = np.argmax(
-        np.dot(u_pel2nav, u_knee2hip_l) + np.dot(u_pel2nav, u_knee2hip_r)
+        np.sum(u_pel2nav * (u_knee2hip_l + u_knee2hip_r), axis=1)
     )
 
-    return u_pel2nav[i_vert]    # (3, 3)
+    return u_pel2nav[i_vert]    # (3, )
 
 
-def transform(arr_positions):
-    u_vert = estimate_vert(arr_positions)
+def transform(arr_pos):
+    u_vert = estimate_vert(arr_pos)             # (3, )
 
-    arr_basis = np.zeros((len(arr_positions), 3, 3))
+    hip_l = arr_pos[:, kinect.HIP_LEFT, :]
+    hip_r = arr_pos[:, kinect.HIP_RIGHT, :]
 
-    arr_hip_l2r = arr_positions[:, HIP_RIGHT, :] - arr_positions[:, HIP_LEFT, :]
-    arr_e_u = np.tile(u_vert, (len(arr_positions), 1))
-    arr_e_f = np.cross(arr_e_u, arr_hip_l2r)
-    arr_e_f /= np.linalg.norm(arr_e_f, ord=2, axis=1)
-    arr_e_r = np.cross(arr_e_f, arr_e_u)
+    hip_l2r = hip_r - hip_l                                     # (T, 3)
+    e_u = np.tile(u_vert, (len(arr_pos), 1))                    # (T, 3)
+    e_f = np.cross(e_u, hip_l2r)                                # (T, 3)
+    e_f /= np.linalg.norm(e_f, ord=2, axis=1, keepdims=True)    # (T, 3)
+    e_r = np.cross(e_f, e_u)                                    # (T, 3)
 
-    arr_basis = np.zeros((len(arr_positions), 3, 3))
-    arr_basis[:, RIGHT_DIM, :] = arr_e_r
-    arr_basis[:, FRONT_DIM, :] = arr_e_f
-    arr_basis[:, UP_DIM, :] = arr_e_u
+    basis = np.zeros((len(arr_pos), 3, 3))      # (T, 3, 3)
+    basis[:, :, RIGHT_DIM] = e_r
+    basis[:, :, FRONT_DIM] = e_f
+    basis[:, :, UP_DIM] = e_u
 
-    arr_basis_inv = np.linalg.inv(arr_basis)                    # (T, 3, 3)
-    arr_basis_inv_t = np.expand_dims(arr_basis_inv, axis=0)     # (1, T, 3, 3)
+    arr_pos_trans = np.matmul(arr_pos, basis)     # (T, J, 3)
 
-    arr_positions_t = np.transpose(arr_positions, (1, 0, 2))    # (J, T, 3)
-    arr_positions_t = np.expand_dims(arr_positions_t, axis=2)   # (J, T, 1, 3)
-
-    arr_k = np.matmul(arr_positions, arr_basis_inv)     # (J, T, 1, 3)
-    arr_k = np.squeeze(arr_k)                           # (J, T, 3)
-    arr_k = np.transpose(arr_k, (1, 0, 2))              # (T, J, 3)
-
-    return arr_k
+    return arr_pos_trans
 
 
 def calc_proj_angle(arr_positions, joint, dim):
