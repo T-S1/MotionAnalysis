@@ -89,6 +89,19 @@ def trans_pos(arr_pos):
     return arr_pos_trans
 
 
+def calc_proj(arr_v, e_x, e_y, e_z, dim):
+    arr_v_proj =  np.stack(
+        [
+            np.sum(e_x * arr_v, axis=1),
+            np.sum(e_y * arr_v, axis=1),
+            np.sum(e_z * arr_v, axis=1)
+        ],
+        axis=1
+    )                                       # (N, D)
+    arr_v_proj[:, dim] = 0
+    return arr_v_proj
+
+
 def calc_deg(arr_v1, arr_v2):
     arr_cos_theta = np.sum(arr_v1 * arr_v2, axis=1)
     arr_cos_theta /= np.linalg(arr_v1, ord=2, axis=1)
@@ -100,38 +113,28 @@ def calc_deg(arr_v1, arr_v2):
 
 
 def calc_trunk_score(arr_pos, u_vert):
-    pel2nav = arr_pos[:, kinect.SPINE_NAVAL, :] - arr_pos[:, kinect.PELVIS, :]  # (N, D)
+    # calculate basis
+    hip_l2r = arr_pos[:, kinect.HIP_RIGHT, :] - arr_pos[:, kinect.HIP_LEFT, :]
     e_z = np.expand_dims(u_vert, axis=0)                # (1, D)
-    e_y = np.cross(e_z, pel2nav)                        # (N, D)
-    e_y /= np.linalg.norm(pel2nav, ord=2, axis=1)
+    e_y = np.cross(e_z, hip_l2r)                        # (N, D)
+    e_y /= np.linalg.norm(hip_l2r, ord=2, axis=1, keepdims=True)
     e_x = np.cross(e_y, e_z)                            # (N, D)
 
-    pel2nav_proj_x = np.stack(
-        [
-            np.zeros(len(pel2nav)),
-            np.sum(e_y * pel2nav, axis=1),
-            np.sum(e_z * pel2nav, axis=1)
-        ],
-        axis=1
-    )                                       # (N, D)
-
+    # calculate flexion or extension angles
+    pel2nav = arr_pos[:, kinect.SPINE_NAVAL, :] - arr_pos[:, kinect.PELVIS, :]  # (N, D)
+    pel2nav_proj_x = calc_proj(pel2nav, e_x, e_y, e_z, 0)
     flex_deg = calc_deg(pel2nav_proj_x, e_z)
     flex_deg[pel2nav_proj_x[:, 1] < 0] *= -1
 
-    pel2nav_proj_y = np.stack(
-        [
-            np.sum(e_x * pel2nav, axis=1),
-            np.zeros(len(pel2nav)),
-            np.sum(e_z * pel2nav, axis=1)
-        ],
-        axis=1
-    )                                       # (N, D)
-
+    # calculate side flexion angles
+    pel2nav_proj_y = calc_proj(pel2nav, e_x, e_y, e_z, 1)
     side_flex_deg = calc_deg(pel2nav_proj_y, e_z)
 
+    # calculate twisting angles
     clav_l2r = arr_pos[:, kinect.CLAVICLE_RIGHT, :] - arr_pos[:, kinect.CLAVICLE_LEFT, :]
     twist_deg = calc_deg(clav_l2r, pel2nav)
 
+    # calculate scores
     arr_score = np.ones(len(arr_pos))
     arr_score[np.abs(flex_deg) > TRUNK_SCORE_TH_1] += 1
     arr_score[np.abs(flex_deg) > TRUNK_SCORE_TH_2] += 1
@@ -140,6 +143,40 @@ def calc_trunk_score(arr_pos, u_vert):
     arr_score[
         (side_flex_deg > TRUNK_SIDE_FLEX_TH) |
         (twist_deg > TRUNK_TWIST_TH)
+    ] += 1
+
+    return arr_score
+
+
+def calc_neck_score(arr_pos):
+    # calculate basis
+    clav_l2r = arr_pos[:, kinect.CLAVICLE_RIGHT, :] - arr_pos[:, kinect.CLAVICLE_LEFT, :]
+    chest2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.SPINE_CHEST, :]
+    e_z = chest2neck
+    e_z /= np.linalg.norm(chest2neck, ord=2, axis=1, keepdims=True)     # (N, D)
+    e_y = np.cross(e_z, clav_l2r)
+    e_y /= np.linalg.norm(clav_l2r, ord=2, axis=1, keepdims=True)       # (N, D)
+    e_x = np.cross(e_y, e_z)                                            # (N, D)
+
+    # calculate flexion or extension angles
+    neck2head = arr_pos[:, kinect.HEAD, :] - arr_pos[:, kinect.NECK, :]
+    neck2head_proj_x = calc_proj(neck2head, e_x, e_y, e_z, 0)
+    flex_deg = calc_deg(neck2head_proj_x, e_z)
+
+    # calculate side flexion angles
+    neck2head_proj_y = calc_proj(neck2head, e_x, e_y, e_z, 1)
+    side_flex_deg = calc_deg(neck2head_proj_y, e_z)
+
+    # calculate twisting angles
+    ear_l2r = arr_pos[:, kinect.EAR_RIGHT, :] - arr_pos[:, kinect.EAR_LEFT, :]
+    twist_deg = calc_deg(ear_l2r, clav_l2r)
+
+    # calculate scores
+    arr_score = np.ones(len(arr_pos))
+    arr_score[flex_deg > NECK_SCORE_TH] += 1
+    arr_score[
+        (side_flex_deg > NECK_SIDE_FLEX_TH) |
+        (twist_deg > NECK_TWIST_TH)
     ] += 1
 
     return arr_score
