@@ -8,6 +8,7 @@ import os
 import json
 
 import numpy as np
+import quaternion
 import pandas as pd
 
 import src.kinect as kinect
@@ -15,8 +16,9 @@ import src.kinect as kinect
 [RIGHT_DIM, FRONT_DIM, UP_DIM] = range(3)
 
 # angle unit [deg]
-TRUNK_SCORE_TH_1 = 20
-TRUNK_SCORE_TH_2 = 60
+TRUNK_SCORE_TH_1 = 5
+TRUNK_SCORE_TH_2 = 20
+TRUNK_SCORE_TH_3 = 60
 TRUNK_TWIST_TH = 20
 TRUNK_SIDE_FLEX_TH = 20
 
@@ -65,7 +67,7 @@ def estimate_vert(arr_pos):
     return u_pel2nav[i_vert]    # (3, )
 
 
-def transform(arr_pos):
+def trans_pos(arr_pos):
     u_vert = estimate_vert(arr_pos)             # (3, )
 
     hip_l = arr_pos[:, kinect.HIP_LEFT, :]
@@ -102,17 +104,58 @@ def calc_proj_angle(arr_positions, joint, dim):
     return flex_angle, side_angle
 
 
-def calc_angle(arr_v1, arr_v2):
-    arr_norm1 = np.linalg.norm(arr_v1, ord=2, axis=1)
-    arr_norm2 = np.linalg.norm(arr_v2, ord=2, axis=1)
-    arr_cos_theta = np.dot(arr_v1, arr_v2) / (arr_norm1 * arr_norm2)
-    arr_theta = np.arccos(arr_cos_theta)
+def calc_deg(arr_v1, arr_v2):
+    cos_theta = np.sum(arr_v1 * arr_v2, axis=1)
+    cos_theta /= np.linalg(arr_v1, ord=2, axis=1)
+    cos_theta /= np.linalg(arr_v2, ord=2, axis=1)
+    rad = np.arccos(cos_theta)
+    deg = np.degrees(rad)
 
-    return arr_theta    # (T,)
+    return deg
 
 
-def calc_trunc_score(arr_pos_trans):
-    
+def calc_trunk_score(arr_pos, u_vert):
+    pel2nav = arr_pos[:, kinect.SPINE_NAVAL, :] - arr_pos[:, kinect.PELVIS, :]  # (N, D)
+    e_z = np.expand_dims(u_vert, axis=0)                # (1, D)
+    e_y = np.cross(e_z, pel2nav)                        # (N, D)
+    e_y /= np.linalg.norm(pel2nav, ord=2, axis=1)
+    e_x = np.cross(e_y, e_z)                            # (N, D)
+
+    pel2nav_proj_x = np.stack(
+        [
+            np.zeros(len(pel2nav)),
+            np.sum(e_y * pel2nav, axis=1),
+            np.sum(e_z * pel2nav, axis=1)
+        ],
+        axis=1
+    )                                       # (N, D)
+
+    flex_deg = calc_deg(pel2nav_proj_x, e_z)
+    flex_deg[pel2nav_proj_x[:, 1] < 0] *= -1
+
+    pel2nav_proj_y = np.stack(
+        [
+            np.sum(e_x * pel2nav, axis=1),
+            np.zeros(len(pel2nav)),
+            np.sum(e_z * pel2nav, axis=1)
+        ],
+        axis=1
+    )                                       # (N, D)
+
+    side_flex_deg = calc_deg(pel2nav_proj_y, e_z)
+
+    should_l2r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
+    ############################
+
+    arr_score = np.ones(len(arr_pos))
+    arr_score[np.abs(flex_deg) > TRUNK_SCORE_TH_1] += 1
+    arr_score[np.abs(flex_deg) > TRUNK_SCORE_TH_2] += 1
+    arr_score[flex_deg > TRUNK_SCORE_TH_3] += 1
+
+    arr_score[
+        (side_flex_deg > TRUNK_SIDE_FLEX_TH) |
+        (side_flex_deg > )
+    ] += 1
 
 
 def reba(arr_positions, load_force, coupling):
@@ -138,13 +181,13 @@ def main():
                         type=int, default=0)
     args = parser.parse_args()
 
-    arr_timestamp, arr_positions = read_time_pos(args.input_json, args.body_id)
+    arr_time, arr_ori, arr_pos = kinect.read_time_ori_pos(args.input_json, args.body_id)
 
-    arr_pos_trans = transform(arr_positions)
+    arr_pos_trans = transform(arr_pos)
 
-    pel2nav = arr_pos_trans[:, SPINE_NAVAL, :] - arr_pos_trans[:, PELVIS, :]
-    hip_l2r = arr_pos_trans[:, HIP_RIGHT, :] - arr_pos_trans[:, HIP_LEFT, :]
-    clav_l2r = arr_pos_trans[:, CLAVICLE_RIGHT, :] - arr_pos_trans[:, CLAVICLE_LEFT, :]
+    pel2nav = arr_pos_trans[:, kinect.SPINE_NAVAL, :] - arr_pos_trans[:, kinect.PELVIS, :]
+    hip_l2r = arr_pos_trans[:, kinect.HIP_RIGHT, :] - arr_pos_trans[:, kinect.HIP_LEFT, :]
+    clav_l2r = arr_pos_trans[:, kinect.CLAVICLE_RIGHT, :] - arr_pos_trans[:, kinect.CLAVICLE_LEFT, :]
 
     trunk_flex = calc_angle(np.array([[0, 1]]), pel2nav[:, [FRONT_DIM, UP_DIM]])
     trunk_side_flex = calc_angle(np.array([[0, 1]]), pel2nav[:, [RIGHT_DIM, UP_DIM]])
