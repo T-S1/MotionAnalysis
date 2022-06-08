@@ -20,7 +20,7 @@ TRUNK_SCORE_TH_1 = 5
 TRUNK_SCORE_TH_2 = 20
 TRUNK_SCORE_TH_3 = 60
 TRUNK_TWIST_TH = 20
-TRUNK_SIDE_FLEX_TH = 20
+TRUNK_SIDE_FLEX_TH = 5
 
 NECK_SCORE_TH = 20
 NECK_TWIST_TH = 20
@@ -89,29 +89,14 @@ def trans_pos(arr_pos):
     return arr_pos_trans
 
 
-def calc_proj_angle(arr_positions, joint, dim):
-
-    pel2nav = arr_positions[:, SPINE_NAVAL, :] - arr_positions[:, PELVIS, :]
-
-    proj_r = pel2nav[:, [FRONT_DIM, UP_DIM]]
-    u_proj_r = proj_r / np.linalg.norm(proj_r, ord=2, axis=1)
-    flex_angle = np.arccos(u_proj_r[:, 1])
-
-    proj_f = pel2nav[:, [RIGHT_DIM, UP_DIM]]
-    u_proj_f = proj_f / np.linalg.norm(proj_f, ord=2, axis=1)
-    side_angle = np.arccos(u_proj_f[:, 1])
-
-    return flex_angle, side_angle
-
-
 def calc_deg(arr_v1, arr_v2):
-    cos_theta = np.sum(arr_v1 * arr_v2, axis=1)
-    cos_theta /= np.linalg(arr_v1, ord=2, axis=1)
-    cos_theta /= np.linalg(arr_v2, ord=2, axis=1)
-    rad = np.arccos(cos_theta)
-    deg = np.degrees(rad)
+    arr_cos_theta = np.sum(arr_v1 * arr_v2, axis=1)
+    arr_cos_theta /= np.linalg(arr_v1, ord=2, axis=1)
+    arr_cos_theta /= np.linalg(arr_v2, ord=2, axis=1)
+    arr_rad = np.arccos(arr_cos_theta)
+    arr_deg = np.degrees(arr_rad)
 
-    return deg
+    return arr_deg
 
 
 def calc_trunk_score(arr_pos, u_vert):
@@ -144,8 +129,8 @@ def calc_trunk_score(arr_pos, u_vert):
 
     side_flex_deg = calc_deg(pel2nav_proj_y, e_z)
 
-    should_l2r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
-    ############################
+    clav_l2r = arr_pos[:, kinect.CLAVICLE_RIGHT, :] - arr_pos[:, kinect.CLAVICLE_LEFT, :]
+    twist_deg = calc_deg(clav_l2r, pel2nav)
 
     arr_score = np.ones(len(arr_pos))
     arr_score[np.abs(flex_deg) > TRUNK_SCORE_TH_1] += 1
@@ -154,21 +139,10 @@ def calc_trunk_score(arr_pos, u_vert):
 
     arr_score[
         (side_flex_deg > TRUNK_SIDE_FLEX_TH) |
-        (side_flex_deg > )
+        (twist_deg > TRUNK_TWIST_TH)
     ] += 1
 
-
-def reba(arr_positions, load_force, coupling):
-
-    arr_pos_trans = transform(arr_positions)
-
-    pel2nav = arr_pos_trans[:, SPINE_NAVAL, :] - arr_pos_trans[:, PELVIS, :]
-    hip_l2r = arr_pos_trans[:, HIP_RIGHT, :] - arr_pos_trans[:, HIP_LEFT, :]
-    clav_l2r = arr_pos_trans[:, CLAVICLE_RIGHT, :] - arr_pos_trans[:, CLAVICLE_LEFT, :]
-
-    trunk_flex = calc_angle(np.array([[0, 1]]), pel2nav[:, [FRONT_DIM, UP_DIM]])
-    trunk_side_flex = calc_angle(np.array([[0, 1]]), pel2nav[:, [RIGHT_DIM, UP_DIM]])
-    trunk_twist = calc_angle(hip_l2r, clav_l2r)
+    return arr_score
 
 
 def main():
