@@ -13,35 +13,120 @@ import pandas as pd
 
 import src.kinect as kinect
 
-[RIGHT_DIM, FRONT_DIM, UP_DIM] = range(3)
 
-# angle unit [deg]
-TRUNK_SCORE_TH_1 = 5
-TRUNK_SCORE_TH_2 = 20
-TRUNK_SCORE_TH_3 = 60
-TRUNK_TWIST_TH = 20
-TRUNK_SIDE_FLEX_TH = 5
+class Reba:
+    def __init__(self):
 
-NECK_SCORE_TH = 20
-NECK_TWIST_TH = 20
-NECK_SIDE_FLEX_TH = 20
+        [self.RIGHT_DIM, self.FRONT_DIM, self.UP_DIM] = range(3)
 
-LEGS_ANGLE_TH_1 = 30
-LEGS_ANGLE_TH_2 = 60
-LEGS_UNIRATERAL_TH = 20
-SITTING_THIGH_TH = 80
+        # angle unit [deg]
+        self.TRUNK_SCORE_TH_1 = 5
+        self.TRUNK_SCORE_TH_2 = 20
+        self.TRUNK_SCORE_TH_3 = 60
+        self.TRUNK_TWIST_TH = 20
+        self.TRUNK_SIDE_FLEX_TH = 5
 
-UPPER_ARMS_SCORE_TH_1 = 20
-UPPER_ARMS_SCORE_TH_2 = 45
-UPPER_ARMS_SCORE_TH_3 = 90
-UPPER_ARMS_ABDUCT_TH = 20
-UPPER_ARMS_ROTATE_TH = 20
-SHOULDER_RAISE_TH = 5
+        self.NECK_SCORE_TH = 20
+        self.NECK_TWIST_TH = 20
+        self.NECK_SIDE_FLEX_TH = 20
 
-LOWER_ARMS_SCORE_TH_1 = 60
-LOWER_ARMS_SCORE_TH_2 = 100
+        self.LEGS_ANGLE_TH_1 = 30
+        self.LEGS_ANGLE_TH_2 = 60
+        self.LEGS_UNIRATERAL_TH = 20
+        self.SITTING_THIGH_TH = 80
 
-WRISTS_SCORE_TH = 15
+        self.UPPER_ARMS_SCORE_TH_1 = 20
+        self.UPPER_ARMS_SCORE_TH_2 = 45
+        self.UPPER_ARMS_SCORE_TH_3 = 90
+        self.UPPER_ARMS_ABDUCT_TH = 20
+        self.UPPER_ARMS_ROTATE_TH = 20
+        self.SHOULDER_RAISE_TH = 5
+
+        self.LOWER_ARMS_SCORE_TH_1 = 60
+        self.LOWER_ARMS_SCORE_TH_2 = 100
+
+        self.WRISTS_SCORE_TH = 15
+
+    def calc_deg(self, arr_v1, arr_v2):
+        arr_cos_theta = np.sum(arr_v1 * arr_v2, axis=1)
+        arr_cos_theta /= np.linalg(arr_v1, ord=2, axis=1)
+        arr_cos_theta /= np.linalg(arr_v2, ord=2, axis=1)
+        arr_rad = np.arccos(arr_cos_theta)
+        arr_deg = np.degrees(arr_rad)
+
+        return arr_deg
+
+    def rot_coord(self, arr_vt, arr_vx, arr_vy, arr_vz):
+        e_x = arr_vx / np.linalg.norm(arr_vx, ord=2, axis=1, keepdims=True)
+        e_y = arr_vy / np.linalg.norm(arr_vy, ord=2, axis=1, keepdims=True)
+        e_z = arr_vz / np.linalg.norm(arr_vz, ord=2, axis=1, keepdims=True)
+        rot_mat = np.stack(
+            [
+                np.sum(e_x * arr_vt, axis=1),
+                np.sum(e_y * arr_vt, axis=1),
+                np.sum(e_z * arr_vt, axis=1)
+            ],
+            axis=2
+        )                                               # (N, D, xyz)
+        arr_vt_temp = np.expand_dims(arr_vt, axis=1)    # (N, 1, D)
+        arr_vt_rot = np.matmul(arr_vt_temp, rot_mat)
+        return arr_vt_rot
+
+    def calc_trunk_score(self, arr_pos):
+        pel2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.PELVIS, :]
+        hip2knee_l = arr_pos[:, kinect.KNEE_LEFT, :] - arr_pos[:, kinect.HIP_LEFT, :]
+        hip2knee_r = arr_pos[:, kinect.KNEE_RIGHT, :] - arr_pos[:, kinect.HIP_RIGHT, :]
+
+        waist_deg_l = self.calc_deg(pel2neck, -hip2knee_l)
+        waist_deg_r = self.calc_deg(pel2neck, -hip2knee_r)
+
+        if waist_deg_l < waist_deg_r:
+            flex_base = -hip2knee_l
+        else:
+            flex_base = -hip2knee_r
+
+        flex_deg = self.calc_deg(pel2neck, flex_base)
+
+        hip_l2r = arr_pos[:, kinect.HIP_RIGHT, :] - arr_pos[:, kinect.HIP_LEFT, :]
+        vz = flex_base
+        vy = np.cross(vz, hip_l2r)
+        vx = np.cross(vy, vz)
+        pel2neck_rot = self.rot_coord(pel2neck, vx, vy, vz)
+        side_flex_rad = np.arctan2(pel2neck_rot[:, 2], pel2neck_rot[:, 0])
+        side_flex_deg = np.degrees(side_flex_rad)
+
+        vx = hip_l2r
+        vy = np.cross(pel2neck, vx)
+        vz = np.cross(vx, vy)
+        shoul_l2r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
+        shoul_l2r_rot = self.rot_coord(shoul_l2r, vx, vy, vz)
+        twist_deg = self.calc_deg(shoul_l2r_rot, hip_l2r)
+
+        arr_score = np.ones(len(arr_pos))
+        arr_score[flex_deg > self.TRUNK_SCORE_TH_1] = 2
+        arr_score[flex_deg > self.TRUNK_SCORE_TH_2] = 3
+        arr_score[flex_deg > self.TRUNK_SCORE_TH_3] = 4
+
+        arr_score[side_flex_deg > self.TRUNK_SIDE_FLEX_TH] += 1
+        arr_score[twist_deg > self.TRUNK_TWIST_TH] += 1
+
+        return arr_score
+
+    def calc_neck_score(self, arr_pos):
+        neck2head = arr_pos[:, kinect.HEAD, :] - arr_pos[:, kinect.NECK, :]
+        pel2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.PELVIS, :]
+
+        flex_deg = self.calc_deg(neck2head, pel2neck)
+
+        shoul_l2r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
+        vz = pel2neck
+        vy = np.cross(vz, shoul_l2r)
+        vx = np.cross(vy, vx)
+        neck2head_rot = self.rot_coord(neck2head, vx, vy, vz)
+        side_flex_rad = np.arctan2(neck2head_rot[:, 2], neck2head_rot[:, 0])
+        side_flex_deg = np.degrees(side_flex_rad)
+
+        vx = shoul_l2r
 
 
 def estimate_vert(arr_pos):
@@ -180,6 +265,19 @@ def calc_neck_score(arr_pos):
     ] += 1
 
     return arr_score
+
+def calc_legs_score(arr_pos, u_vert):
+    # calculate basis
+    hip_l2r = arr_pos[:, kinect.HIP_RIGHT, :] - arr_pos[:, kinect.HIP_LEFT, :]
+    e_z = np.expand_dims(u_vert, axis=0)                # (1, D)
+    e_y = np.cross(e_z, hip_l2r)                        # (N, D)
+    e_y /= np.linalg.norm(hip_l2r, ord=2, axis=1, keepdims=True)
+    e_x = np.cross(e_y, e_z)                            # (N, D)
+
+    
+
+
+################# from here
 
 
 def main():
