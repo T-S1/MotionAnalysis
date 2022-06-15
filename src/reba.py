@@ -33,8 +33,8 @@ class Reba:
         self.KNEE_ANGLE_TH_1 = 30
         self.KNEE_ANGLE_TH_2 = 60
         self.LEGS_BILATERAL_TH = 20
-        self.WALKING_TH = 5             # [mm/s]
-        self.SITTING_THIGH_TH = 80
+        self.WALKING_TH = 5            # [mm/s]
+        self.SITTING_TH = 5
 
         self.UPPER_ARMS_SCORE_TH_1 = 20
         self.UPPER_ARMS_SCORE_TH_2 = 45
@@ -47,9 +47,13 @@ class Reba:
         self.LOWER_ARMS_SCORE_TH_2 = 100
 
         self.WRISTS_SCORE_TH = 15
+        self.WRISTS_TWIST_TH = 45
+        self.WRISTS_DEVIATE_TH = 5
 
         self.fps = fps
-        self.u_vert = np.array([[0, 0, 1]])
+
+    def calc_unit_vec(self, arr_v):
+        return arr_v / np.linalg.norm(arr_v, ord=2, axis=1, keepdims=True)
 
     def calc_vec_deg(self, arr_v1, arr_v2):
         arr_cos_theta = np.sum(arr_v1 * arr_v2, axis=1)
@@ -61,6 +65,7 @@ class Reba:
         return arr_deg
 
     def estimate_vert(self, arr_pos):
+        u_vert = np.zeros((1, 3))
         knee2hip_l = arr_pos[:, kinect.HIP_LEFT, :] - arr_pos[:, kinect.KNEE_LEFT, :]
         knee2hip_r = arr_pos[:, kinect.HIP_RIGHT, :] - arr_pos[:, kinect.KNEE_RIGHT, :]
         pel2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.KNEE_RIGHT, :]
@@ -69,16 +74,31 @@ class Reba:
         right_deg = self.calc_vec_deg(knee2hip_r, pel2neck)
 
         idx_min = np.argmin(left_deg + right_deg)
-        self.u_vert[0, :] = pel2neck[idx_min, :]
+        u_vert[0, :] = pel2neck[idx_min, :]
+
+        return u_vert
+
+    def estimate_shoulder_base(self, arr_pos):
+        chest2clav_l = arr_pos[:, kinect.CLAVICLE_LEFT, :] - arr_pos[:, kinect.SPINE_CHEST, :]
+        chest2clav_r = arr_pos[:, kinect.CLAVICLE_RIGHT, :] - arr_pos[:, kinect.SPINE_CHEST, :]
+        clav2shoul_l = arr_pos[:, kinect.SHOULDER_LEFT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
+        clav2shoul_r = arr_pos[:, kinect.SHOULDER_LEFT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
+
+        raised_deg_l = self.calc_vec_deg(-chest2clav_l, clav2shoul_l)
+        raised_deg_r = self.calc_vec_deg(-chest2clav_r, clav2shoul_r)
+
+        raised_deg_min = np.amin([raised_deg_l, raised_deg_r])
+
+        return raised_deg_min
 
     def calc_basis(self, arr_vx, arr_vy_base):
 
         arr_vz = np.cross(arr_vx, arr_vy_base)
         arr_vy = np.cross(arr_vz, arr_vx)
 
-        e_x = arr_vx / np.linalg.norm(arr_vx, ord=2, axis=1, keepdims=True)
-        e_y = arr_vy / np.linalg.norm(arr_vy, ord=2, axis=1, keepdims=True)
-        e_z = arr_vz / np.linalg.norm(arr_vz, ord=2, axis=1, keepdims=True)
+        e_x = self.calc_unit_vec(arr_vx)
+        e_y = self.calc_unit_vec(arr_vy)
+        e_z = self.calc_unit_vec(arr_vz)
 
         return np.stack([e_x, e_y, e_z], axis=2)
 
@@ -98,13 +118,13 @@ class Reba:
         arr_vt_rot = np.matmul(arr_vt_temp, rot_mat)
         return arr_vt_rot
 
-    def calc_trunk_score(self, arr_pos):
+    def calc_trunk_score(self, arr_pos, u_vert):
         pel2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.PELVIS, :]
 
-        flex_deg = self.calc_vec_deg(pel2neck, self.u_vert)
+        flex_deg = self.calc_vec_deg(pel2neck, u_vert)
 
         hip_l2r = arr_pos[:, kinect.HIP_RIGHT, :] - arr_pos[:, kinect.HIP_LEFT, :]
-        arr_basis = self.calc_basis(self.u_vert, hip_l2r)
+        arr_basis = self.calc_basis(u_vert, hip_l2r)
         pel2neck_rot = self.rot_coord(pel2neck, arr_basis)
 
         flex_rad = np.arctan2(pel2neck_rot[:, 2], pel2neck[:, 0])
@@ -162,16 +182,15 @@ class Reba:
 
         return arr_score
 
-    def calc_legs_score(self, arr_pos):
+    def calc_legs_score(self, arr_pos, u_vert):
+        # calculate symmetry
         hip_l2r = arr_pos[:, kinect.HIP_RIGHT, :] - arr_pos[:, kinect.HIP_LEFT, :]
 
-        arr_basis = self.calc_basis(self.u_vert, hip_l2r)
+        arr_basis = self.calc_basis(u_vert, hip_l2r)
         u_norm = arr_basis[:, :, 1]
 
         hip2knee_l = arr_pos[:, kinect.KNEE_LEFT, :] - arr_pos[:, kinect.HIP_LEFT, :]
         hip2knee_r = arr_pos[:, kinect.KNEE_RIGHT, :] - arr_pos[:, kinect.HIP_RIGHT, :]
-
-        pel = arr_pos[:, kinect.PELVIS, :]
 
         hip2knee_l_mirror = np.sum(hip2knee_l * u_norm, axis=1, keepdims=True)
         hip2knee_l_mirror *= u_norm
@@ -186,6 +205,7 @@ class Reba:
 
         mean_deg = (hip2knee_deg + knee2ank_deg) / 2
 
+        # check walking
         dif_ank_l = arr_pos[1:, kinect.ANKLE_LEFT, :] - arr_pos[:-1, kinect.ANKLE_LEFT, :]
         dif_ank_r = arr_pos[1:, kinect.ANKLE_RIGHT, :] - arr_pos[:-1, kinect.ANKLE_RIGHT, :]
 
@@ -194,11 +214,16 @@ class Reba:
 
         walking = (speed_ank_l > self.WALKING_TH) | (speed_ank_r > self.WALKING_TH)
 
+        # check sitting
+        hdeg_hip2knee_l = self.calc_vec_deg(hip2knee_l, u_vert) - 90
+        sitting = (hdeg_hip2knee_l < self.SITTING_TH)
+
         knee_l_deg = self.calc_vec_deg(hip2knee_l, knee2ank_l)
         knee_r_deg = self.calc_vec_deg(hip2knee_r, knee2ank_r)
 
+        # calcluate score
         arr_score = np.ones(len(arr_pos))
-        arr_score[(mean_deg > self.LEGS_BILATERAL_TH) & (~walking)] = 2
+        arr_score[(mean_deg > self.LEGS_BILATERAL_TH) & (~walking) & (~sitting)] = 2
         arr_score[
             (knee_l_deg > self.KNEE_ANGLE_TH_1) |
             (knee_r_deg > self.KNEE_ANGLE_TH_1)
@@ -207,10 +232,204 @@ class Reba:
             (knee_l_deg > self.KNEE_ANGLE_TH_2) |
             (knee_r_deg > self.KNEE_ANGLE_TH_2)
         ] += 1
+
+        return arr_score
+
+    def calc_arms_rot_deg(self, arr_pos):
+        shoul2elb_l = arr_pos[:, kinect.ELBOW_LEFT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
+        shoul2elb_r = arr_pos[:, kinect.ELBOW_RIGHT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
+        elb2wrist_l = arr_pos[:, kinect.WRIST_LEFT, :] - arr_pos[:, kinect.ELBOW_LEFT, :]
+        elb2wrist_r = arr_pos[:, kinect.WRIST_RIGHT, :] - arr_pos[:, kinect.ELBOW_RIGHT, :]
+        clav2shoul_l = arr_pos[:, kinect.SHOULDER_LEFT, :] - arr_pos[:, kinect.CLAVICLE_LEFT, :]
+        clav2shoul_r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.CLAVICLE_RIGHT, :]
+
+        u_norm_l = -np.cross(clav2shoul_l, shoul2elb_l)
+        u_norm_r = np.cross(clav2shoul_r, shoul2elb_r)
+
+        # avoid zero vector
+        u_norm_l[np.all(u_norm_l == 0, axis=1)] = np.array([0, 1, 0])
+        u_norm_r[np.all(u_norm_r == 0, axis=1)] = np.array([0, 1, 0])
+
+        u_norm_l = self.calc_unit_vec(u_norm_l)
+        u_norm_r = self.calc_unit_vec(u_norm_r)
+
+        u_shoul2elb_l = self.calc_unit_vec(shoul2elb_l)
+        u_shoul2elb_r = self.calc_unit_vec(shoul2elb_r)
+        u_elb2wrist_l = self.calc_unit_vec(elb2wrist_l)
+        u_elb2wrist_r = self.calc_unit_vec(elb2wrist_r)
+        elb2wrist_l_proj = u_elb2wrist_l - np.sum(u_elb2wrist_l * u_shoul2elb_l, axis=1) * u_shoul2elb_l
+        elb2wrist_r_proj = u_elb2wrist_r - np.sum(u_elb2wrist_r * u_shoul2elb_r, axis=1) * u_shoul2elb_r
+
+        # avoid zero vector
+        elb2wrist_l_proj[np.all(u_norm_l == 0, axis=1)] = np.array([0, 1, 0])
+        elb2wrist_r_proj[np.all(u_norm_l == 0, axis=1)] = np.array([0, 1, 0])
+
+        u_proj_l = self.calc_unit_vec(elb2wrist_l_proj)
+        u_proj_r = self.calc_unit_vec(elb2wrist_r_proj)
+
+        rot_deg_l = self.calc_vec_deg(u_proj_l, u_norm_l)
+        rot_deg_r = self.calc_vec_deg(u_proj_r, u_norm_r)
+
+        return rot_deg_l, rot_deg_r
+
+    def calc_upper_arms_score(self, arr_pos, shoul_base, supported=None):
+        if supported == None:
+            supported = np.array([False] * len(arr_pos))
+
+        shoul2elb_l = arr_pos[:, kinect.ELBOW_LEFT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
+        shoul2elb_r = arr_pos[:, kinect.ELBOW_RIGHT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
+        pel2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.PELVIS, :]
+        shoul_l2r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
+        clav2shoul_l = arr_pos[:, kinect.SHOULDER_LEFT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
+        clav2shoul_r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
+
+        arr_basis = self.calc_basis(pel2neck, shoul_l2r)
+        shoul2elbow_l_rot = self.rot_coord(shoul2elb_l, arr_basis)
+        shoul2elbow_r_rot = self.rot_coord(shoul2elb_r, arr_basis)
+
+        # front flexion is positive
+        flex_rad_l = np.arctan2(shoul2elbow_l_rot[:, 2], -shoul2elbow_l_rot[:, 0])
+        flex_rad_r = np.arctan2(shoul2elbow_r_rot[:, 2], -shoul2elbow_r_rot[:, 0])
+        flex_deg_l = np.degrees(flex_rad_l)
+        flex_deg_r = np.degrees(flex_rad_r)
+
+        flex_deg = flex_deg_l
+        idx_r = (np.abs(flex_deg_l) < np.abs(flex_deg_r))
+        flex_deg[idx_r] = flex_deg_r[idx_r]
+
+        # abduction is positive
+        abduct_rad_l = np.arctan2(shoul2elbow_l_rot[:, 1], -shoul2elbow_l_rot[:, 0])
+        abduct_rad_r = np.arctan2(-shoul2elbow_r_rot[:, 1], -shoul2elbow_l_rot[:, 0])
+        abduct_deg_l = np.degrees(abduct_rad_l)
+        abduct_deg_r = np.degrees(abduct_rad_r)
+
+        rot_deg_l, rot_deg_r = self.calc_arms_rot_deg(arr_pos)
+
+        chest2clav_l = arr_pos[:, kinect.CLAVICLE_LEFT, :] - arr_pos[:, kinect.SPINE_CHEST, :]
+        chest2clav_r = arr_pos[:, kinect.CLAVICLE_RIGHT, :] - arr_pos[:, kinect.SPINE_CHEST, :]
+
+        shoul_deg_l = self.calc_vec_deg(-chest2clav_l, clav2shoul_l)
+        shoul_deg_r = self.calc_vec_deg(-chest2clav_r, clav2shoul_r)
+
+        raised_deg_l = shoul_deg_l - shoul_base
+        raised_deg_r = shoul_deg_r - shoul_base
+
+        arr_score_l = np.ones(len(arr_pos))
+        arr_score_l[np.abs(flex_deg_l) > self.UPPER_ARMS_SCORE_TH_1] = 2
+        arr_score_l[flex_deg_l > self.UPPER_ARMS_SCORE_TH_2] = 3
+        arr_score_l[flex_deg_l > self.UPPER_ARMS_SCORE_TH_3] = 4
+        arr_score_l[
+            (abduct_deg_l > self.UPPER_ARMS_ABDUCT_TH) |
+            (rot_deg_l > self.UPPER_ARMS_ROTATE_TH)
+        ] += 1
+        arr_score_l[raised_deg_l > self.SHOULDER_RAISE_TH] += 1
+
+        arr_score_r = np.ones(len(arr_pos))
+        arr_score_r[np.abs(flex_deg_r) > self.UPPER_ARMS_SCORE_TH_1] = 2
+        arr_score_r[flex_deg_r > self.UPPER_ARMS_SCORE_TH_2] = 3
+        arr_score_r[flex_deg_r > self.UPPER_ARMS_SCORE_TH_3] = 4
+        arr_score_r[
+            (abduct_deg_r > self.UPPER_ARMS_ABDUCT_TH) |
+            (rot_deg_r > self.UPPER_ARMS_ROTATE_TH)
+        ] += 1
+        arr_score_r[raised_deg_r > self.SHOULDER_RAISE_TH] += 1
+        arr_score_r[supported] += 1
+
+        return arr_score_l, arr_score_r
+
+    def calc_lower_arms_score(self, arr_pos):
+        shoul2elb_l = arr_pos[:, kinect.ELBOW_LEFT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
+        shoul2elb_r = arr_pos[:, kinect.ELBOW_RIGHT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
+        elb2wrist_l = arr_pos[:, kinect.WRIST_LEFT, :] - arr_pos[:, kinect.ELBOW_LEFT, :]
+        elb2wrist_r = arr_pos[:, kinect.WRIST_RIGHT, :] - arr_pos[:, kinect.WRIST_RIGHT, :]
+
+        flex_deg_l = self.calc_vec_deg(shoul2elb_l, elb2wrist_l)
+        flex_deg_r = self.calc_vec_deg(shoul2elb_r, elb2wrist_r)
+
+        arr_score_l = np.ones(len(arr_pos))
+        arr_score_l[
+            (flex_deg_l < self.LOWER_ARMS_SCORE_TH_1) |
+            (flex_deg_l > self.LOWER_ARMS_SCORE_TH_2)
+        ] = 2
+
+        arr_score_r = np.ones(len(arr_pos))
+        arr_score_r[
+            (flex_deg_r < self.LOWER_ARMS_SCORE_TH_1) |
+            (flex_deg_r > self.LOWER_ARMS_SCORE_TH_2)
+        ] = 2
+
+        return arr_score_l, arr_score_r
+
+    def calc_wrists_twist(self, arr_pos):
+        shoul2elb_l = arr_pos[:, kinect.ELBOW_LEFT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
+        shoul2elb_r = arr_pos[:, kinect.ELBOW_RIGHT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
+        elb2wrist_l = arr_pos[:, kinect.WRIST_LEFT, :] - arr_pos[:, kinect.ELBOW_LEFT, :]
+        elb2wrist_r = arr_pos[:, kinect.WRIST_RIGHT, :] - arr_pos[:, kinect.ELBOW_RIGHT, :]
+        wrist2thumb_l = arr_pos[:, kinect.THUMB_LEFT, :] - arr_pos[:, kinect.WRIST_LEFT, :]
+        wrist2thumb_r = arr_pos[:, kinect.THUMB_RIGHT, :] - arr_pos[:, kinect.WRIST_RIGHT, :]
+
+        v_norm_l = np.cross(shoul2elb_l, elb2wrist_l)
+        v_norm_r = np.cross(shoul2elb_r, elb2wrist_r)
+
+        # avoid zero vector
+        v_norm_l[np.all(v_norm_l == 0, axis=1)] = np.array([0, 1, 0])
+        v_norm_r[np.all(v_norm_r == 0, axis=1)] = np.array([0, 1, 0])
+
+        u_elb2wrist_l = self.calc_unit_vec(v_norm_l)
+        u_elb2wrist_r = self.calc_unit_vec(v_norm_r)
+        u_wrist2thumb_l = self.calc_unit_vec(wrist2thumb_l)
+        u_wrist2thumb_r = self.calc_unit_vec(wrist2thumb_r)
+        wrist2thumb_l_proj = u_wrist2thumb_l - np.sum(u_wrist2thumb_l * u_elb2wrist_l, axis=1) * u_elb2wrist_l
+        wrist2thumb_r_proj = u_wrist2thumb_r - np.sum(u_wrist2thumb_r * u_elb2wrist_r, axis=1) * u_elb2wrist_r
+
+        twist_deg_l = self.calc_vec_deg(wrist2thumb_l_proj, v_norm_l)
+        twist_deg_l = self.calc_vec_deg(wrist2thumb_r_proj, v_norm_r)
+        # ?
+
         ##### from here
 
 
-def main():
+    def calc_wrists_score(self, arr_pos):
+        wrist2hand_l = arr_pos[:, kinect.HAND_LEFT, :] - arr_pos[:, kinect.WRIST_LEFT, :]
+        wrist2hand_r = arr_pos[:, kinect.HAND_RIGHT, :] - arr_pos[:, kinect.WRIST_RIGHT, :]
+        wrist2thumb_l = arr_pos[:, kinect.THUMB_LEFT, :] - arr_pos[:, kinect.WRIST_LEFT, :]
+        wrist2thumb_r = arr_pos[:, kinect.THUMB_RIGHT, :] - arr_pos[:, kinect.WRIST_RIGHT, :]
+        elb2wrist_l = arr_pos[:, kinect.WRIST_LEFT, :] - arr_pos[:, kinect.ELBOW_LEFT, :]
+        elb2wrist_r = arr_pos[:, kinect.WRIST_RIGHT, :] - arr_pos[: kinect.ELBOW_RIGHT, :]
+
+        flex_deg_l = self.calc_vec_deg(wrist2hand_l, elb2wrist_l)
+        flex_deg_r = self.calc_vec_deg(wrist2hand_r, elb2wrist_r)
+
+        arr_basis_l = self.calc_basis(elb2wrist_l, wrist2thumb_l)
+        arr_basis_r = self.calc_basis(elb2wrist_r, wrist2thumb_r)
+        wrist2hand_l_rot = self.rot_coord(wrist2hand_l, arr_basis_l)
+        wrist2hand_r_rot = self.rot_coord(wrist2hand_r, arr_basis_r)
+
+        deviate_rad_l = np.arctan2(wrist2hand_l_rot[:, 1], wrist2hand_l_rot[:, 0])
+        deviate_rad_r = np.arctan2(wrist2hand_r_rot[:, 1], wrist2hand_r_rot[:, 0])
+        deviate_deg_l = np.degrees(deviate_rad_l)
+        deviate_deg_r = np.degrees(deviate_rad_r)
+
+        arr_score_l = np.ones(len(arr_pos))
+        arr_score_l[flex_deg_l > self.WRISTS_SCORE_TH] = 2
+        arr_score_l[
+            (flex_deg_l > self.WRISTS_TWIST_TH) |
+            (deviate_deg_l > self.WRISTS_DEVIATE_TH)
+        ] += 1
+
+        arr_score_r = np.ones(len(arr_pos))
+        arr_score_r[flex_deg_r > self.WRISTS_SCORE_TH] = 2
+        arr_score_r[
+            (flex_deg_r > self.WRISTS_TWIST_TH) |
+            (deviate_deg_r > self.WRISTS_DEVIATE_TH)
+        ] += 1
+
+        return arr_basis_l, arr_basis_r
+        ##### from here
+
+
+# code sample
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("input_json",
                         help="input json file path",
@@ -219,21 +438,3 @@ def main():
                         help="target body id",
                         type=int, default=0)
     args = parser.parse_args()
-
-    arr_time, arr_ori, arr_pos = kinect.read_time_ori_pos(args.input_json, args.body_id)
-
-    arr_pos_trans = transform(arr_pos)
-
-    pel2nav = arr_pos_trans[:, kinect.SPINE_NAVAL, :] - arr_pos_trans[:, kinect.PELVIS, :]
-    hip_l2r = arr_pos_trans[:, kinect.HIP_RIGHT, :] - arr_pos_trans[:, kinect.HIP_LEFT, :]
-    clav_l2r = arr_pos_trans[:, kinect.CLAVICLE_RIGHT, :] - arr_pos_trans[:, kinect.CLAVICLE_LEFT, :]
-
-    trunk_flex = calc_angle(np.array([[0, 1]]), pel2nav[:, [FRONT_DIM, UP_DIM]])
-    trunk_side_flex = calc_angle(np.array([[0, 1]]), pel2nav[:, [RIGHT_DIM, UP_DIM]])
-    trunk_twist = calc_angle(hip_l2r, clav_l2r)
-
-    
-
-
-if __name__ == "__main__":
-    main()
