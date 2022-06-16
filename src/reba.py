@@ -514,3 +514,28 @@ class Reba:
         df_part_scores.to_csv(f"{save_dir}/part_scores.csv", index=False)
 
         print("Done REBA scoring")
+
+
+# code sample
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input_json",
+                        help="input json file path",
+                        type=str)
+    parser.add_argument("-id", "--body_id",
+                        help="target body id",
+                        type=int, default=1)
+    parser.add_argument("--fps",
+                        help="fps",
+                        type=int, default=30)
+    args = parser.parse_args()
+
+    reba_ins = Reba(args.fps)
+    _, _, arr_pos = kinect.read_time_ori_pos(args.input_json, args.body_id)
+
+    name = os.path.splitext(os.path.basename(args.input_json))[0]
+    save_dir = f"./reba/{name}"
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir)
+
+    reba_ins.run(save_dir, arr_pos)
