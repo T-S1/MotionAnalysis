@@ -2,7 +2,7 @@
 # [1] definition of orientation
 #     https://microsoft.github.io/Azure-Kinect-Body-Tracking/release/1.1.x/unionk4a__quaternion__t.html
 
-import pdb; pdb.set_trace()
+# import pdb; pdb.set_trace()
 import argparse
 import os
 
@@ -534,7 +534,7 @@ if __name__ == "__main__":
     _, _, arr_pos = kinect.read_time_ori_pos(args.input_json, args.body_id)
 
     name = os.path.splitext(os.path.basename(args.input_json))[0]
-    save_dir = f"./reba/{name}"
+    save_dir = f"./outputs/reba/{name}"
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
 
