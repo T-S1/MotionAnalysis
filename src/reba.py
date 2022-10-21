@@ -9,7 +9,7 @@ import os
 import numpy as np
 import pandas as pd
 
-import kinect as kinect
+import src.kinect as kinect
 
 
 class Reba:
@@ -21,32 +21,32 @@ class Reba:
         self.TRUNK_SCORE_TH_1 = 5
         self.TRUNK_SCORE_TH_2 = 20
         self.TRUNK_SCORE_TH_3 = 60
-        self.TRUNK_TWIST_TH = 20
-        self.TRUNK_SIDE_FLEX_TH = 5
+        self.TRUNK_TWIST_TH = 10
+        self.TRUNK_SIDE_FLEX_TH = 10
 
         self.NECK_SCORE_TH = 20
-        self.NECK_TWIST_TH = 20
-        self.NECK_SIDE_FLEX_TH = 20
+        self.NECK_TWIST_TH = 10
+        self.NECK_SIDE_FLEX_TH = 10
 
         self.KNEE_ANGLE_TH_1 = 30
         self.KNEE_ANGLE_TH_2 = 60
-        self.LEGS_BILATERAL_TH = 20
+        self.LEGS_BILATERAL_TH = 10
         self.WALKING_TH = 50            # [mm/s]
-        self.SITTING_TH = 5
+        self.SITTING_TH = 10
 
         self.UPPER_ARMS_SCORE_TH_1 = 20
         self.UPPER_ARMS_SCORE_TH_2 = 45
         self.UPPER_ARMS_SCORE_TH_3 = 90
         self.UPPER_ARMS_ABDUCT_TH = 20
         self.UPPER_ARMS_ROTATE_TH = 20
-        self.SHOULDER_RAISE_TH = 5
+        self.SHOULDER_RAISE_TH = 10
 
         self.LOWER_ARMS_SCORE_TH_1 = 60
         self.LOWER_ARMS_SCORE_TH_2 = 100
 
         self.WRISTS_SCORE_TH = 15
-        self.WRISTS_TWIST_TH = 45
-        self.WRISTS_DEVIATE_TH = 5
+        self.WRISTS_TWIST_TH = 30
+        self.WRISTS_DEVIATE_TH = 10
 
         self.table_a = np.array([
             [[1, 2, 3, 4], [1, 2, 3, 4], [3, 3, 5, 6]],
@@ -514,6 +514,8 @@ class Reba:
         df_part_scores.to_csv(f"{save_dir}/part_scores.csv", index=False)
 
         print("Done REBA scoring")
+
+        return reba_scores
 
 
 # code sample

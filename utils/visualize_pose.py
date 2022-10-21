@@ -11,7 +11,7 @@ import cv2
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-import kinect as kinect
+import src.kinect as kinect
 
 
 class MotionDrawer():

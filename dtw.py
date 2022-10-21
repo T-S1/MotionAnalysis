@@ -140,7 +140,7 @@ class DTWDrawer():
 
     def vis_scores(self, output_jpg):
 
-        self.ax.barh(kinect.JOINT_NAME_LIST, self.arr_dist, alpha=0)
+        self.ax.barh(kinect.JOINT_NAME_LIST, self.arr_dist)
         plt.savefig(output_jpg)
         plt.cla()
 
