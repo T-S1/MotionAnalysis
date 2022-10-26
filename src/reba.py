@@ -21,32 +21,32 @@ class Reba:
         self.TRUNK_SCORE_TH_1 = 5
         self.TRUNK_SCORE_TH_2 = 20
         self.TRUNK_SCORE_TH_3 = 60
-        self.TRUNK_TWIST_TH = 10
+        self.TRUNK_TWIST_TH = 15
         self.TRUNK_SIDE_FLEX_TH = 10
 
         self.NECK_SCORE_TH = 20
-        self.NECK_TWIST_TH = 10
-        self.NECK_SIDE_FLEX_TH = 10
+        self.NECK_TWIST_TH = 20
+        self.NECK_SIDE_FLEX_TH = 5
 
         self.KNEE_ANGLE_TH_1 = 30
         self.KNEE_ANGLE_TH_2 = 60
-        self.LEGS_BILATERAL_TH = 10
-        self.WALKING_TH = 50            # [mm/s]
+        self.LEGS_BILATERAL_TH = 15
+        self.WALKING_TH = 100            # [mm/s]
         self.SITTING_TH = 10
 
         self.UPPER_ARMS_SCORE_TH_1 = 20
         self.UPPER_ARMS_SCORE_TH_2 = 45
         self.UPPER_ARMS_SCORE_TH_3 = 90
-        self.UPPER_ARMS_ABDUCT_TH = 20
-        self.UPPER_ARMS_ROTATE_TH = 20
-        self.SHOULDER_RAISE_TH = 10
+        self.UPPER_ARMS_ABDUCT_TH = 15
+        self.UPPER_ARMS_ROTATE_TH = 60
+        self.SHOULDER_RAISE_TH = 20
 
         self.LOWER_ARMS_SCORE_TH_1 = 60
         self.LOWER_ARMS_SCORE_TH_2 = 100
 
         self.WRISTS_SCORE_TH = 15
-        self.WRISTS_TWIST_TH = 30
-        self.WRISTS_DEVIATE_TH = 10
+        self.WRISTS_TWIST_TH = 90
+        self.WRISTS_DEVIATE_TH = 30
 
         self.table_a = np.array([
             [[1, 2, 3, 4], [1, 2, 3, 4], [3, 3, 5, 6]],
@@ -82,6 +82,8 @@ class Reba:
 
         self.fps = fps
 
+        self.info_map = {}
+
     def calc_unit_vec(self, arr_v):
         return arr_v / np.linalg.norm(arr_v, ord=2, axis=1, keepdims=True)
 
@@ -98,21 +100,21 @@ class Reba:
         u_vert = np.zeros((1, 3))
         knee2hip_l = arr_pos[:, kinect.HIP_LEFT, :] - arr_pos[:, kinect.KNEE_LEFT, :]
         knee2hip_r = arr_pos[:, kinect.HIP_RIGHT, :] - arr_pos[:, kinect.KNEE_RIGHT, :]
-        pel2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.KNEE_RIGHT, :]
+        pel2nav = arr_pos[:, kinect.SPINE_NAVAL, :] - arr_pos[:, kinect.PELVIS, :]
 
-        left_deg = self.calc_vec_deg(knee2hip_l, pel2neck)
-        right_deg = self.calc_vec_deg(knee2hip_r, pel2neck)
+        left_deg = self.calc_vec_deg(knee2hip_l, pel2nav)
+        right_deg = self.calc_vec_deg(knee2hip_r, pel2nav)
 
         idx_min = np.argmin(left_deg + right_deg)
-        u_vert[0, :] = pel2neck[idx_min, :]
+        u_vert[0, :] = pel2nav[idx_min, :]
 
         return u_vert
 
     def estimate_shoulder_base(self, arr_pos):
         chest2clav_l = arr_pos[:, kinect.CLAVICLE_LEFT, :] - arr_pos[:, kinect.SPINE_CHEST, :]
         chest2clav_r = arr_pos[:, kinect.CLAVICLE_RIGHT, :] - arr_pos[:, kinect.SPINE_CHEST, :]
-        clav2shoul_l = arr_pos[:, kinect.SHOULDER_LEFT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
-        clav2shoul_r = arr_pos[:, kinect.SHOULDER_LEFT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
+        clav2shoul_l = arr_pos[:, kinect.SHOULDER_LEFT, :] - arr_pos[:, kinect.CLAVICLE_LEFT, :]
+        clav2shoul_r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.CLAVICLE_RIGHT, :]
 
         raised_deg_l = self.calc_vec_deg(-chest2clav_l, clav2shoul_l)
         raised_deg_r = self.calc_vec_deg(-chest2clav_r, clav2shoul_r)
@@ -147,24 +149,26 @@ class Reba:
         return arr_vt_rot
 
     def calc_trunk_score(self, arr_pos, u_vert):
-        pel2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.PELVIS, :]
+        pel2nav = arr_pos[:, kinect.SPINE_NAVAL, :] - arr_pos[:, kinect.PELVIS, :]
+        knee2hip_l = arr_pos[:, kinect.HIP_LEFT, :] - arr_pos[:, kinect.KNEE_LEFT, :]
+        knee2hip_r = arr_pos[:, kinect.HIP_RIGHT, :] - arr_pos[:, kinect.KNEE_RIGHT, :]
 
-        flex_deg = self.calc_vec_deg(pel2neck, u_vert)
+        flex_deg = np.maximum(
+            self.calc_vec_deg(knee2hip_l, pel2nav),
+            self.calc_vec_deg(knee2hip_r, pel2nav)
+        )
 
         hip_l2r = arr_pos[:, kinect.HIP_RIGHT, :] - arr_pos[:, kinect.HIP_LEFT, :]
         arr_basis = self.calc_basis(u_vert, hip_l2r)
-        pel2neck_rot = self.rot_coord(pel2neck, arr_basis)
+        pel2nav_rot = self.rot_coord(pel2nav, arr_basis)
 
-        flex_rad = np.arctan2(pel2neck_rot[:, 2], pel2neck[:, 0])
-        flex_deg = np.degrees(flex_rad)
-
-        side_flex_rad = np.arctan2(pel2neck_rot[:, 1], pel2neck_rot[:, 0])
+        side_flex_rad = np.arctan2(pel2nav_rot[:, 1], pel2nav_rot[:, 0])
         side_flex_deg = np.degrees(side_flex_rad)
 
-        arr_basis = self.calc_basis(hip_l2r, pel2neck)
+        arr_basis = self.calc_basis(hip_l2r, pel2nav)
         shoul_l2r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
         shoul_l2r_rot = self.rot_coord(shoul_l2r, arr_basis)
-        twist_rad = np.arctan2(shoul_l2r_rot[:, 2], shoul_l2r[:, 0])
+        twist_rad = np.arctan2(shoul_l2r_rot[:, 2], -shoul_l2r[:, 0])
         twist_deg = np.degrees(twist_rad)
 
         arr_score = np.ones(len(arr_pos), dtype=int)
@@ -177,27 +181,32 @@ class Reba:
             (np.abs(twist_deg) > self.TRUNK_TWIST_TH)
         ] += 1
 
+        self.info_map["trunk_flex_deg"] = flex_deg
+        self.info_map ["trunk_side_flex_deg"] = side_flex_deg
+        self.info_map["trunk_twist_deg"] = twist_deg
+
         return arr_score
 
     def calc_neck_score(self, arr_pos):
         neck2head = arr_pos[:, kinect.HEAD, :] - arr_pos[:, kinect.NECK, :]
-        pel2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.PELVIS, :]
+        chest2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.SPINE_CHEST, :]
         shoul_l2r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
+        head2nose = arr_pos[:, kinect.NOSE, :] - arr_pos[:, kinect.HEAD, :]
 
-        arr_basis = self.calc_basis(pel2neck, shoul_l2r)
+        arr_basis = self.calc_basis(chest2neck, shoul_l2r)
         neck2head_rot = self.rot_coord(neck2head, arr_basis)
         flex_rad = np.arctan2(neck2head_rot[:, 2], neck2head_rot[:, 0])
         flex_deg = np.degrees(flex_rad)
 
         shoul_l2r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
-        arr_basis = self.calc_basis(pel2neck, shoul_l2r)
+        arr_basis = self.calc_basis(chest2neck, shoul_l2r)
         neck2head_rot = self.rot_coord(neck2head, arr_basis)
         side_flex_rad = np.arctan2(neck2head_rot[:, 1], neck2head_rot[:, 0])
         side_flex_deg = np.degrees(side_flex_rad)
 
-        arr_basis = self.calc_basis(shoul_l2r, pel2neck)
-        neck2head_rot = self.rot_coord(neck2head, arr_basis)
-        twist_rad = np.arctan2(neck2head_rot[:, 2], neck2head_rot[:, 0])
+        arr_basis = self.calc_basis(chest2neck, shoul_l2r)
+        head2nose_rot = self.rot_coord(head2nose, arr_basis)
+        twist_rad = np.arctan2(head2nose_rot[:, 1], head2nose_rot[:, 2])
         twist_deg = np.degrees(twist_rad)
 
         arr_score = np.ones(len(arr_pos), dtype=int)
@@ -207,6 +216,10 @@ class Reba:
             (np.abs(side_flex_deg) > self.NECK_SIDE_FLEX_TH) |
             (np.abs(twist_deg) > self.NECK_TWIST_TH)
         ] += 1
+
+        self.info_map["neck_flex_deg"] = flex_deg
+        self.info_map["neck_side_flex_deg"] = side_flex_deg
+        self.info_map["neck_twist_deg"] = twist_deg
 
         return arr_score
 
@@ -231,6 +244,8 @@ class Reba:
 
         mean_deg = (hip2knee_deg + knee2ank_deg) / 2
 
+        legs_deg = self.calc_vec_deg(hip2knee_l, hip2knee_r)
+
         # check walking
         dif_ank_l = np.zeros((len(arr_pos), 3))
         dif_ank_r = np.zeros((len(arr_pos), 3))
@@ -251,7 +266,7 @@ class Reba:
 
         # calcluate score
         arr_score = np.ones(len(arr_pos), dtype=int)
-        arr_score[(mean_deg > self.LEGS_BILATERAL_TH) & (~walking) & (~sitting)] = 2
+        arr_score[(legs_deg > self.LEGS_BILATERAL_TH) & (~walking) & (~sitting)] = 2
         arr_score[
             (knee_l_deg > self.KNEE_ANGLE_TH_1) |
             (knee_r_deg > self.KNEE_ANGLE_TH_1)
@@ -260,6 +275,13 @@ class Reba:
             (knee_l_deg > self.KNEE_ANGLE_TH_2) |
             (knee_r_deg > self.KNEE_ANGLE_TH_2)
         ] += 1
+
+        self.info_map["legs_deg"] = legs_deg
+        self.info_map["speed_ank_l"] = speed_ank_l
+        self.info_map["speed_ank_r"] = speed_ank_r
+        self.info_map["sitting_deg"] = hdeg_hip2knee_l
+        self.info_map["knee_l_deg"] = knee_l_deg
+        self.info_map["knee_r_deg"] = knee_r_deg
 
         return arr_score
 
@@ -310,8 +332,8 @@ class Reba:
         shoul2elb_r = arr_pos[:, kinect.ELBOW_RIGHT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
         pel2neck = arr_pos[:, kinect.NECK, :] - arr_pos[:, kinect.PELVIS, :]
         shoul_l2r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
-        clav2shoul_l = arr_pos[:, kinect.CLAVICLE_LEFT, :] - arr_pos[:, kinect.SHOULDER_LEFT, :]
-        clav2shoul_r = arr_pos[:, kinect.CLAVICLE_RIGHT, :] - arr_pos[:, kinect.SHOULDER_RIGHT, :]
+        clav2shoul_l = arr_pos[:, kinect.SHOULDER_LEFT, :] - arr_pos[:, kinect.CLAVICLE_LEFT, :]
+        clav2shoul_r = arr_pos[:, kinect.SHOULDER_RIGHT, :] - arr_pos[:, kinect.CLAVICLE_RIGHT, :]
 
         arr_basis = self.calc_basis(pel2neck, shoul_l2r)
         shoul2elbow_l_rot = self.rot_coord(shoul2elb_l, arr_basis)
@@ -338,7 +360,7 @@ class Reba:
         chest2clav_l = arr_pos[:, kinect.CLAVICLE_LEFT, :] - arr_pos[:, kinect.SPINE_CHEST, :]
         chest2clav_r = arr_pos[:, kinect.CLAVICLE_RIGHT, :] - arr_pos[:, kinect.SPINE_CHEST, :]
 
-        shoul_deg_l = self.calc_vec_deg(-chest2clav_l, clav2shoul_l)    # error
+        shoul_deg_l = self.calc_vec_deg(-chest2clav_l, clav2shoul_l)
         shoul_deg_r = self.calc_vec_deg(-chest2clav_r, clav2shoul_r)
 
         raised_deg_l = shoul_deg_l - shoul_base
@@ -365,6 +387,15 @@ class Reba:
         arr_score_r[raised_deg_r > self.SHOULDER_RAISE_TH] += 1
         arr_score_r[supported] += 1
 
+        self.info_map["uarm_flex_deg_l"] = flex_deg_l
+        self.info_map["uarm_abduct_deg_l"] = abduct_deg_l
+        self.info_map["uarm_rot_deg_l"] = rot_deg_l
+        self.info_map["uarm_raised_deg_l"] = raised_deg_l
+        self.info_map["uarm_flex_deg_r"] = flex_deg_r
+        self.info_map["uarm_abduct_deg_r"] = abduct_deg_r
+        self.info_map["uarm_rot_deg_r"] = rot_deg_r
+        self.info_map["uarm_raised_deg_r"] = raised_deg_r
+
         return arr_score_l, arr_score_r
 
     def calc_lower_arms_score(self, arr_pos):
@@ -388,6 +419,9 @@ class Reba:
             (flex_deg_r > self.LOWER_ARMS_SCORE_TH_2)
         ] = 2
 
+        self.info_map["larm_flex_deg_l"] = flex_deg_l
+        self.info_map["larm_flex_deg_r"] = flex_deg_r
+
         return arr_score_l, arr_score_r
 
     def calc_wrists_twist(self, arr_pos):
@@ -398,15 +432,8 @@ class Reba:
         wrist2thumb_l = arr_pos[:, kinect.THUMB_LEFT, :] - arr_pos[:, kinect.WRIST_LEFT, :]
         wrist2thumb_r = arr_pos[:, kinect.THUMB_RIGHT, :] - arr_pos[:, kinect.WRIST_RIGHT, :]
 
-        v_norm_l = np.cross(shoul2elb_l, elb2wrist_l)
-        v_norm_r = -np.cross(shoul2elb_r, elb2wrist_r)
-
-        # avoid zero vector
-        v_norm_l[np.all(v_norm_l == 0, axis=1)] = np.array([0, 1, 0])
-        v_norm_r[np.all(v_norm_r == 0, axis=1)] = np.array([0, 1, 0])
-
-        u_elb2wrist_l = self.calc_unit_vec(v_norm_l)
-        u_elb2wrist_r = self.calc_unit_vec(v_norm_r)
+        u_elb2wrist_l = self.calc_unit_vec(elb2wrist_l)
+        u_elb2wrist_r = self.calc_unit_vec(elb2wrist_r)
         u_wrist2thumb_l = self.calc_unit_vec(wrist2thumb_l)
         u_wrist2thumb_r = self.calc_unit_vec(wrist2thumb_r)
         arr_inner_l = np.sum(u_wrist2thumb_l * u_elb2wrist_l, axis=1, keepdims=True)
@@ -414,12 +441,22 @@ class Reba:
         wrist2thumb_l_proj = u_wrist2thumb_l - arr_inner_l * u_elb2wrist_l
         wrist2thumb_r_proj = u_wrist2thumb_r - arr_inner_r * u_elb2wrist_r
 
+        u_elb2shoul_l = self.calc_unit_vec(-shoul2elb_l)
+        u_elb2shoul_r = self.calc_unit_vec(-shoul2elb_r)
+        arr_inner_l = np.sum(u_elb2shoul_l * u_elb2wrist_l, axis=1, keepdims=True)
+        arr_inner_r = np.sum(u_elb2shoul_r * u_elb2wrist_l, axis=1, keepdims=True)
+        elb2shoul_l_proj = u_elb2shoul_l - arr_inner_l * u_elb2wrist_l
+        elb2shoul_r_proj = u_elb2shoul_r - arr_inner_r * u_elb2wrist_r
+
         # avoid zero vector
         wrist2thumb_l_proj[np.all(wrist2thumb_l_proj == 0, axis=1)] = np.array([0, 1, 0])
         wrist2thumb_r_proj[np.all(wrist2thumb_r_proj == 0, axis=1)] = np.array([0, 1, 0])
 
-        twist_deg_l = self.calc_vec_deg(wrist2thumb_l_proj, v_norm_l)
-        twist_deg_r = self.calc_vec_deg(wrist2thumb_r_proj, v_norm_r)
+        elb2shoul_l_proj[np.all(elb2shoul_l_proj == 0, axis=1)] = np.array([0, 1, 0])
+        elb2shoul_r_proj[np.all(elb2shoul_r_proj == 0, axis=1)] = np.array([0, 1, 0])
+
+        twist_deg_l = self.calc_vec_deg(wrist2thumb_l_proj, elb2shoul_l_proj)
+        twist_deg_r = self.calc_vec_deg(wrist2thumb_r_proj, elb2shoul_r_proj)
 
         return twist_deg_l, twist_deg_r
 
@@ -459,6 +496,13 @@ class Reba:
             (twist_deg_r > self.WRISTS_TWIST_TH) |
             (deviate_deg_r > self.WRISTS_DEVIATE_TH)
         ] += 1
+
+        self.info_map["wrist_flex_deg_l"] = flex_deg_l
+        self.info_map["wrist_twist_deg_l"] = twist_deg_l
+        self.info_map["wrist_deviate_deg_l"] = deviate_deg_l
+        self.info_map["wrist_flex_deg_r"] = flex_deg_r
+        self.info_map["wrist_twist_deg_r"] = twist_deg_r
+        self.info_map["wrist_deviate_deg_r"] = deviate_deg_r
 
         return arr_score_l, arr_score_r
 
@@ -512,6 +556,8 @@ class Reba:
                      "Left_wrist", "Right_wrist"]
         )
         df_part_scores.to_csv(f"{save_dir}/part_scores.csv", index=False)
+
+        pd.DataFrame.from_dict(self.info_map).to_csv(f"{save_dir}/info.csv")
 
         print("Done REBA scoring")
 
