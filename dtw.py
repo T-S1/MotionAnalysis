@@ -6,6 +6,7 @@ from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
 import cv2
 from scipy.spatial.distance import euclidean
 from fastdtw import fastdtw
@@ -45,10 +46,6 @@ def trans_coord(arr_pos):
 class MotionDrawer():
     def __init__(self, path_list):
 
-        self.temp_dir = "./temp"
-        if not os.path.isdir(self.temp_dir):
-            os.makedirs(self.temp_dir)
-
         self.dim_x = 0
         self.dim_y = 2
         self.dim_z = 1
@@ -58,37 +55,41 @@ class MotionDrawer():
 
         self.path_list = path_list
 
-        self.fig = plt.figure(figsize=(10, 10))
+        self.fig = plt.figure(figsize=(16, 16), dpi=32)
         self.ax = self.fig.add_subplot(projection="3d")
+        self.scat_col = self.ax.scatter(
+            np.zeros(kinect.NUM_JOINTS),
+            np.zeros(kinect.NUM_JOINTS),
+            np.zeros(kinect.NUM_JOINTS),
+            color="blue"
+        )
+        segs = [[[0, 0, 0], [0, 0, 0]] for _ in kinect.bone_list]
+        line_segments = Line3DCollection(segs, colors="black")
+        self.line_col = self.ax.add_collection(line_segments)
 
     def draw_frame(self, arr_pos, idx):
 
         pel = arr_pos[idx, kinect.PELVIS]
-        self.ax.set(xlim3d=(pel[self.dim_x] - self.alpha, pel[self.dim_x] + self.alpha))
-        self.ax.set(ylim3d=(pel[self.dim_y] - self.alpha, pel[self.dim_y] + self.alpha))
-        self.ax.set(zlim3d=(pel[self.dim_z] + self.alpha, pel[self.dim_z] - self.alpha))
+        self.ax.set(
+            xlim3d=(pel[self.dim_x] - self.alpha, pel[self.dim_x] + self.alpha),
+            ylim3d=(pel[self.dim_y] - self.alpha, pel[self.dim_y] + self.alpha),
+            zlim3d=(pel[self.dim_z] + self.alpha, pel[self.dim_z] - self.alpha)
+        )
 
-        self.ax.scatter(
-            arr_pos[idx, :, self.dim_x],
-            arr_pos[idx, :, self.dim_y],
-            arr_pos[idx, :, self.dim_z],
-            color="blue")
+        self.scat_col.set_offsets(arr_pos[idx, :, [self.dim_x, self.dim_y]].T)
+        self.scat_col.set_3d_properties(arr_pos[idx, :, self.dim_z], "z")
 
-        for joint_1, joint_2 in kinect.bone_list:
-            pos_1 = arr_pos[idx, joint_1]
-            pos_2 = arr_pos[idx, joint_2]
-            self.ax.plot(
-                [pos_1[self.dim_x], pos_2[self.dim_x]],
-                [pos_1[self.dim_y], pos_2[self.dim_y]],
-                [pos_1[self.dim_z], pos_2[self.dim_z]],
-                color="black"
-            )
+        segs = [
+            [
+                arr_pos[idx, joint_1, [self.dim_x, self.dim_y, self.dim_z]],
+                arr_pos[idx, joint_2, [self.dim_x, self.dim_y, self.dim_z]]
+            ] for joint_1, joint_2 in kinect.bone_list
+        ]
+        self.line_col.set_segments(segs)
 
-        plt.savefig(f"{self.temp_dir}/temp.jpg")
-        self.ax.cla()
-
-        im = cv2.imread(f"{self.temp_dir}/temp.jpg")
-        im = cv2.resize(im, (self.side_length, self.side_length))
+        self.fig.canvas.draw()
+        im = np.array(self.fig.canvas.renderer.buffer_rgba())
+        im = cv2.cvtColor(im, cv2.COLOR_RGBA2BGR)
 
         return im
 
@@ -118,7 +119,6 @@ class MotionDrawer():
             thickness = 1
             color = (0, 0, 0)
             line_type = cv2.LINE_4
-
             (w, h), baseline = cv2.getTextSize(text, font_face, font_scale, thickness)
             cv2.putText(
                 im, text, (baseline, h + 2 * baseline),
@@ -204,7 +204,11 @@ def main():
     path_list = []
 
     for j in range(kinect.NUM_JOINTS):
-        dist, path = fastdtw(arr_pos_trans_1[:, j, :], arr_pos_trans_2[:, j, :], dist=euclidean)
+        dist, path = fastdtw(
+            arr_pos_trans_1[:, j, :],
+            arr_pos_trans_2[:, j, :],
+            dist=euclidean
+        )
         dist_list.append(dist)
         path_list.append(path)
 
@@ -227,7 +231,6 @@ def main():
 
     scores_jpg = f"{OUTPUT_DIR}/scores.jpg"
     dtw_drawer.vis_scores(scores_jpg)
-
 
     # ----------------------------------------------------------------------- #
     # Warping path の描画
