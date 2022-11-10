@@ -28,7 +28,7 @@ class MotionDrawer():
         self.fig = plt.figure(figsize=(10, 10))
         self.ax = self.fig.add_subplot(projection="3d")
 
-    def draw_frame(self, arr_pos, idx, color):
+    def draw_frame(self, arr_pos, idx):
 
         pel = arr_pos[idx, kinect.PELVIS]
         self.ax.set(xlim3d=(pel[self.dim_x] - self.alpha, pel[self.dim_x] + self.alpha))
@@ -39,7 +39,7 @@ class MotionDrawer():
             arr_pos[idx, :, self.dim_x],
             arr_pos[idx, :, self.dim_y],
             arr_pos[idx, :, self.dim_z],
-            color=plt.get_cmap("Oranges")((color - 1) * 18)
+            color="blue"
         )
 
         for joint_1, joint_2 in kinect.bone_list:
@@ -49,7 +49,7 @@ class MotionDrawer():
                 [pos_1[self.dim_x], pos_2[self.dim_x]],
                 [pos_1[self.dim_y], pos_2[self.dim_y]],
                 [pos_1[self.dim_z], pos_2[self.dim_z]],
-                color=plt.get_cmap("Oranges")((color - 1) * 18)
+                color="black"
             )
 
         plt.savefig(f"{self.temp_dir}/temp.jpg")
@@ -61,7 +61,7 @@ class MotionDrawer():
         return im
 
     def vis_motion(self, arr_pos, output_mp4, fps,
-                   arr_color=None, target_joint=kinect.WRIST_RIGHT):
+                   arr_score=None, target_joint=kinect.WRIST_RIGHT):
 
         print("Processing")
 
@@ -69,9 +69,9 @@ class MotionDrawer():
         writer = cv2.VideoWriter(output_mp4, fourcc, fps, (self.side_length, self.side_length))
 
         for i in tqdm.tqdm(range(len(arr_pos))):
-            im = self.draw_frame(arr_pos, i, color=arr_color[i])
+            im = self.draw_frame(arr_pos, i)
             
-            text = (f"Score: {arr_color[i]}")
+            text = (f"Score: {arr_score[i]}")
             font_face = cv2.FONT_HERSHEY_PLAIN
             font_scale = 1
             thickness = 1
@@ -82,6 +82,22 @@ class MotionDrawer():
             cv2.putText(
                 im, text, (baseline, h + 2 * baseline),
                 font_face, font_scale, color, thickness, line_type
+            )
+
+            if arr_score[i] == 1:
+                color = (89, 208, 143)
+            elif arr_score[i] < 4:
+                color = (111, 220, 253)
+            elif arr_score[i] < 8:
+                color = (49, 195, 253)
+            elif arr_score[i] < 11:
+                color = (30, 40, 246)
+            else:
+                color = (21, 29, 192)
+            cv2.rectangle(
+                im, (w + 2 * baseline, baseline),
+                (w + h + 3 * baseline, h + 2 * baseline),
+                color, thickness=cv2.FILLED
             )
 
             writer.write(im)
@@ -112,7 +128,7 @@ def main():
 
     reba_scores = reba_ins.run(save_dir, arr_pos)
 
-    MotionDrawer().vis_motion(arr_pos, "./reba/result.mp4", 30, reba_scores)
+    MotionDrawer().vis_motion(arr_pos, f"{save_dir}/result.mp4", 30, reba_scores)
 
 
 if __name__ == "__main__":
